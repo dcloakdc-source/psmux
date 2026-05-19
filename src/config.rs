@@ -752,6 +752,9 @@ pub fn parse_option_value(app: &mut AppState, rest: &str, _is_global: bool) {
                 }
             }
         }
+        "allow-plugin-scripts" => {
+            app.allow_plugin_scripts = matches!(value, "on" | "true" | "1");
+        }
         "command-alias" => {
             if let Some(pos) = value.find('=') {
                 let alias = value[..pos].trim().to_string();
@@ -842,10 +845,14 @@ pub fn parse_option_value(app: &mut AppState, rest: &str, _is_global: bool) {
                                     set_current_config_file(&prev_file);
                                     // If the script uses PS variables (theme plugins),
                                     // static extraction yields unresolved $vars.
-                                    // Queue for post-startup execution when the
-                                    // server is listening.
+                                    // Queue for post-startup execution only when
+                                    // allow-plugin-scripts is explicitly enabled.
                                     if !applied {
-                                        app.pending_plugin_scripts.push(ps1.clone());
+                                        if app.allow_plugin_scripts {
+                                            app.pending_plugin_scripts.push(ps1.clone());
+                                        }
+                                        // else: skip execution; user must set
+                                        //   set -g allow-plugin-scripts on
                                     }
                                 }
                                 break;

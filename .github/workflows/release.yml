@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 # Prevent duplicate runs from overwriting release assets / submitting duplicate PRs
 concurrency:
@@ -41,11 +41,12 @@ jobs:
             nsis_arch: arm64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1 tag
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Build
@@ -92,13 +93,25 @@ jobs:
         run: |
           choco install nsis -y --no-progress
           # Install EnVar plugin for PATH manipulation
+          # Pinned to GsNSIS/EnVar v0.3.1 — SHA256 verified
           $nsisDir = "C:\Program Files (x86)\NSIS"
-          $pluginUrl = "https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip"
-          $pluginZip = "$env:TEMP\EnVar_plugin.zip"
+          $pluginUrl = "https://github.com/GsNSIS/EnVar/releases/download/v0.3.1/EnVar-Plugin.zip"
+          $pluginZip = "$env:TEMP\EnVar-Plugin.zip"
+          $expectedSha = "E5B337FCAD68252D18282F7259A0306053626E41B9480FA09DF3FAB012B85E00"
           Invoke-WebRequest -Uri $pluginUrl -OutFile $pluginZip
+          $actualSha = (Get-FileHash $pluginZip -Algorithm SHA256).Hash.ToUpper()
+          if ($actualSha -ne $expectedSha) {
+            Write-Error "EnVar plugin SHA256 mismatch!`nExpected: $expectedSha`nGot:      $actualSha"
+            exit 1
+          }
+          Write-Output "EnVar plugin SHA256 verified OK"
           Expand-Archive -Path $pluginZip -DestinationPath "$env:TEMP\EnVar" -Force
-          Copy-Item "$env:TEMP\EnVar\Plugins\x86-ansi\*" "$nsisDir\Plugins\x86-ansi\" -Force
-          Copy-Item "$env:TEMP\EnVar\Plugins\x86-unicode\*" "$nsisDir\Plugins\x86-unicode\" -Force
+          Copy-Item "$env:TEMP\EnVar\Plugins\x86-ansi\*"       "$nsisDir\Plugins\x86-ansi\"       -Force
+          Copy-Item "$env:TEMP\EnVar\Plugins\x86-unicode\*"    "$nsisDir\Plugins\x86-unicode\"    -Force
+          if (Test-Path "$env:TEMP\EnVar\Plugins\amd64-unicode") {
+            New-Item -ItemType Directory -Path "$nsisDir\Plugins\amd64-unicode" -Force | Out-Null
+            Copy-Item "$env:TEMP\EnVar\Plugins\amd64-unicode\*" "$nsisDir\Plugins\amd64-unicode\" -Force
+          }
 
       - name: Build NSIS installer
         shell: pwsh
@@ -123,7 +136,7 @@ jobs:
           Write-Output "NSIS installer: $setup ($sizeMB MB)"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: psmux-${{ matrix.artifact }}
           path: |
@@ -134,8 +147,10 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
@@ -218,30 +233,47 @@ jobs:
             echo "cargo install psmux"
             echo "\`\`\`"
             echo ""
-            echo "**Via PowerShell:**"
+            echo "**Via PowerShell (safe download):**"
             echo "\`\`\`powershell"
-            echo "irm https://raw.githubusercontent.com/psmux/psmux/master/scripts/install.ps1 | iex"
+            echo "# Download the installer script to a local file, then run it"
+            echo "Invoke-WebRequest -Uri https://raw.githubusercontent.com/psmux/psmux/master/scripts/install.ps1 -OutFile install-psmux.ps1"
+            echo "# Optionally inspect the script before running:"
+            echo "#   notepad install-psmux.ps1"
+            echo "powershell -ExecutionPolicy Bypass -File install-psmux.ps1"
+            echo "Remove-Item install-psmux.ps1"
             echo "\`\`\`"
             echo ""
             echo "**Manual Installation:**"
             echo "1. Download the zip matching your architecture"
-            echo "2. Extract to a folder in your PATH"
-            echo "3. \`psmux\`, \`pmux\`, and \`tmux\` commands will all be available"
+            echo "2. Verify integrity: \`(Get-FileHash psmux-${CURRENT_TAG}-windows-x64.zip -Algorithm SHA256).Hash\`"
+            echo "   (compare against \`SHA256SUMS.txt\` attached to this release)"
+            echo "3. Extract to a folder in your PATH"
+            echo "4. \`psmux\`, \`pmux\`, and \`tmux\` commands will all be available"
             echo ""
             echo "### What's Included"
             echo "- \`psmux.exe\` - Main executable"
             echo "- \`pmux.exe\` - Alias"
             echo "- \`tmux.exe\` - Alias for tmux compatibility"
+            echo "- \`SHA256SUMS.txt\` - SHA256 checksums for all release artifacts"
           } > /tmp/release_body.md
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
 
       - name: List artifacts
         run: find . -type f \( -name "*.zip" -o -name "*-setup.exe" \)
 
+      - name: Generate SHA256SUMS
+        run: |
+          find psmux-windows-x64 psmux-windows-x86 psmux-windows-arm64 \
+            -type f \( -name "*.zip" -o -name "*-setup.exe" \) | sort | while read f; do
+            sha256sum "$f"
+          done > SHA256SUMS.txt
+          echo "=== SHA256SUMS.txt ==="
+          cat SHA256SUMS.txt
+
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           tag_name: ${{ inputs.tag }}
           name: ${{ inputs.tag }}
@@ -252,6 +284,7 @@ jobs:
             psmux-windows-x64/**/*-setup.exe
             psmux-windows-x86/**/*-setup.exe
             psmux-windows-arm64/**/*-setup.exe
+            SHA256SUMS.txt
           body_path: /tmp/release_body.md
           draft: false
           prerelease: false
@@ -263,10 +296,12 @@ jobs:
     needs: release
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1 tag
+        with:
+          toolchain: stable
 
       - name: Verify crate compiles with crates.io dependencies
         run: |
@@ -310,7 +345,7 @@ jobs:
     needs: release
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Wait for release assets to stabilize on GitHub CDN
         shell: pwsh

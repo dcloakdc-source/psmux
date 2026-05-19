@@ -1,5 +1,8 @@
 # psmux installation script for Windows
-# Run as: irm https://raw.githubusercontent.com/psmux/psmux/master/scripts/install.ps1 | iex
+# Safe usage: download to a local file first, then run it.
+#   Invoke-WebRequest -Uri https://raw.githubusercontent.com/psmux/psmux/master/scripts/install.ps1 -OutFile install-psmux.ps1
+#   powershell -ExecutionPolicy Bypass -File install-psmux.ps1
+#   Remove-Item install-psmux.ps1
 # Or locally: .\scripts\install.ps1
 
 param(
@@ -61,16 +64,52 @@ if ($LocalBuild) {
         }
         
         $DownloadUrl = $Asset.browser_download_url
-        $TempZip = "$env:TEMP\psmux-download.zip"
-        $TempExtract = "$env:TEMP\psmux-extract"
-        
+        $AssetName = $Asset.name
+
+        # Use a randomized temp directory to avoid predictable path races
+        $TempDir     = Join-Path $env:TEMP ([IO.Path]::GetRandomFileName())
+        $TempZip     = Join-Path $TempDir "psmux-download.zip"
+        $TempExtract = Join-Path $TempDir "extract"
+        New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
+
+        # Download SHA256SUMS manifest for verification
+        $checksumUrl = "https://github.com/psmux/psmux/releases/download/$($Release.tag_name)/SHA256SUMS.txt"
+        $sumFile = Join-Path $TempDir "SHA256SUMS.txt"
+        $expectedHash = $null
+        try {
+            Invoke-WebRequest -Uri $checksumUrl -OutFile $sumFile -ErrorAction Stop
+            # Parse SHA256SUMS.txt: lines of "<hash>  <path>" or "<hash> *<path>"
+            foreach ($line in (Get-Content $sumFile)) {
+                $parts = $line -split '\s+\*?', 2
+                if ($parts.Length -eq 2 -and $parts[1] -like "*$AssetName*") {
+                    $expectedHash = $parts[0].ToUpper()
+                    break
+                }
+            }
+        } catch {
+            Write-Host "  Note: Could not download checksum manifest ($($_.Exception.Message))" -ForegroundColor Yellow
+            Write-Host "  Proceeding without integrity verification." -ForegroundColor Yellow
+        }
+
         Write-Host "Downloading from: $DownloadUrl"
         Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempZip
-        
+
+        # Verify hash if we obtained one from the manifest
+        if ($expectedHash) {
+            $actualHash = (Get-FileHash $TempZip -Algorithm SHA256).Hash.ToUpper()
+            if ($actualHash -ne $expectedHash) {
+                Write-Host "SHA256 mismatch for $AssetName!" -ForegroundColor Red
+                Write-Host "  Expected: $expectedHash" -ForegroundColor Red
+                Write-Host "  Got:      $actualHash" -ForegroundColor Red
+                Remove-Item -Recurse -Force $TempDir -ErrorAction SilentlyContinue
+                exit 1
+            }
+            Write-Host "  SHA256 verified OK" -ForegroundColor Green
+        }
+
         # Extract
-        if (Test-Path $TempExtract) { Remove-Item -Recurse -Force $TempExtract }
         Expand-Archive -Path $TempZip -DestinationPath $TempExtract -Force
-        
+
         $SourceDir = $TempExtract
         
     } catch {
@@ -116,8 +155,7 @@ if ($UserPath -notlike "*$InstallDir*") {
 
 # Cleanup temp files if downloaded
 if (-not $LocalBuild) {
-    if (Test-Path $TempZip) { Remove-Item $TempZip -Force }
-    if (Test-Path $TempExtract) { Remove-Item -Recurse -Force $TempExtract }
+    if (Test-Path $TempDir) { Remove-Item -Recurse -Force $TempDir -ErrorAction SilentlyContinue }
 }
 
 Write-Host ""
