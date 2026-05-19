@@ -664,6 +664,10 @@ pub struct AppState {
     /// Plugin .ps1 scripts queued during config loading for post-startup execution.
     /// These need the server to be running (TCP listener) before they can apply.
     pub pending_plugin_scripts: Vec<String>,
+    /// allow-plugin-scripts: when true, plugin .ps1 scripts queued during config loading
+    /// are executed post-startup via PowerShell.  Default: false (opt-in required).
+    /// Enable with: set -g allow-plugin-scripts on
+    pub allow_plugin_scripts: bool,
     /// Connected control mode clients (keyed by client_id).
     pub control_clients: HashMap<u64, ControlClient>,
     /// Session group name (set by `new-session -t target` for tmux group semantics).
@@ -843,6 +847,7 @@ impl AppState {
             allow_alternate_screen: true,
             warm_pane: None,
             pending_plugin_scripts: Vec::new(),
+            allow_plugin_scripts: false,
             control_clients: HashMap::new(),
             session_group: None,
             defaults_suppressed: false,

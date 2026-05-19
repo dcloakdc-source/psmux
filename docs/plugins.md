@@ -52,9 +52,28 @@ Remove-Item "$env:TEMP\psmux-plugins" -Recurse -Force
 Then add to your `~/.psmux.conf`:
 
 ```tmux
+# Enable plugin PowerShell script execution (off by default for safety)
+set -g allow-plugin-scripts on
+
 set -g @plugin 'psmux-plugins/ppm'
 set -g @plugin 'psmux-plugins/psmux-sensible'
 run '~/.psmux/plugins/ppm/ppm.ps1'
 ```
 
 Press `Prefix + I` inside psmux to install the declared plugins.
+
+## Plugin Script Security
+
+Plugin `.ps1` entry scripts are **disabled by default**. psmux will still read
+`plugin.conf` files (static config) without any opt-in.
+
+To allow plugin `.ps1` scripts to run (needed for theme plugins that use
+PowerShell variables), add this line to your config **before** any `@plugin`
+declarations:
+
+```tmux
+set -g allow-plugin-scripts on
+```
+
+This is an explicit trust decision: only enable it when you have reviewed
+or trust the plugins you have installed.

@@ -565,7 +565,8 @@ pub fn run_server(session_name: String, socket_name: Option<String>, initial_com
     // them async and then drain the CtrlReq channel in a mini-loop so
     // show-options / set requests from the scripts are handled before
     // the main UI starts.
-    if !app.pending_plugin_scripts.is_empty() {
+    // Note: scripts are only queued when allow-plugin-scripts is on.
+    if !app.pending_plugin_scripts.is_empty() && app.allow_plugin_scripts {
         let scripts: Vec<String> = app.pending_plugin_scripts.drain(..).collect();
         let target_session = app.port_file_base();
         let mut children: Vec<std::process::Child> = Vec::new();
